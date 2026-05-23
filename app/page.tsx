@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 
 type Platform = "weixin" | "xiaohongshu";
 type AccountType = "life" | "emotion" | "career" | "growth" | "review" | "opinion";
+type XhsStyle = "干货分享" | "经验分享" | "个人观点" | "情绪抒发" | "生活记录";
 
 type StyleOption = {
   id: string;
@@ -18,14 +19,34 @@ type AccountOption = {
   styles: StyleOption[];
 };
 
+type StyleAnalysis = {
+  recommended_style: XhsStyle;
+  sub_direction: string;
+  tone: string;
+  emoji_density: "low" | "medium" | "high";
+  reason: string;
+  user_facing_summary: string;
+  confidence: number;
+  alternative_styles: string[];
+};
+
+type StyleCheck = {
+  is_suitable: boolean;
+  mismatch_level: "none" | "mild" | "obvious" | "strong";
+  recommended_style: string;
+  warning: string;
+  can_continue: boolean;
+  rewrite_impact: string;
+};
+
 const platformConfig = {
   xiaohongshu: {
     name: "小红书",
     shortName: "小红书",
     accent: "red",
     description: "轻表达、强钩子、适合收藏和互动。",
-    targetLabel: "改成小红书笔记",
-    sourceGuess: "更适合从公众号长文、碎片想法或偏正式内容转入。",
+    targetLabel: "分析小红书风格",
+    sourceGuess: "粘贴任意草稿，先让 AI 判断最适合的小红书表达方向。",
   },
   weixin: {
     name: "微信公众号",
@@ -47,39 +68,7 @@ const platformConfig = {
   }
 >;
 
-const accountOptions: Record<Platform, AccountOption[]> = {
-  xiaohongshu: [
-    {
-      id: "life",
-      name: "生活记录",
-      hint: "日常 / 旅行 / 生活方式",
-      styles: [
-        { id: "diary", name: "真实碎碎念", description: "像朋友聊天，有场景、有细节、有情绪转折。" },
-        { id: "list", name: "收藏清单", description: "用分点和步骤制造收藏价值。" },
-        { id: "contrast", name: "反差吐槽", description: "先抛痛点，再给反差观点，适合评论互动。" },
-      ],
-    },
-    {
-      id: "emotion",
-      name: "情绪疗愈",
-      hint: "关系 / 内耗 / 自我觉察",
-      styles: [
-        { id: "soft", name: "温柔陪伴", description: "先接住情绪，再给低压力建议。" },
-        { id: "wake", name: "反内耗", description: "更直接有力量，帮读者从纠结里出来。" },
-        { id: "story", name: "故事共鸣", description: "用一个具体经历带出情绪和结论。" },
-      ],
-    },
-    {
-      id: "review",
-      name: "种草测评",
-      hint: "好物 / 工具 / 体验",
-      styles: [
-        { id: "seed", name: "种草安利", description: "强调使用场景、真实感受和适合人群。" },
-        { id: "compare", name: "对比测评", description: "先给结论，再讲优缺点和选择建议。" },
-        { id: "guide", name: "新手攻略", description: "降低门槛，适合快速收藏照做。" },
-      ],
-    },
-  ],
+const accountOptions: Record<"weixin", AccountOption[]> = {
   weixin: [
     {
       id: "opinion",
@@ -114,6 +103,14 @@ const accountOptions: Record<Platform, AccountOption[]> = {
   ],
 };
 
+const xhsStyles: Array<{ value: XhsStyle; label: string; desc: string }> = [
+  { value: "干货分享", label: "干货分享", desc: "方法、步骤、技巧" },
+  { value: "经验分享", label: "经验分享", desc: "经历、踩坑、复盘" },
+  { value: "个人观点", label: "个人观点", desc: "看法、判断、立场" },
+  { value: "情绪抒发", label: "情绪抒发", desc: "心情、感受、内心独白" },
+  { value: "生活记录", label: "生活记录", desc: "日常片段、状态记录" },
+];
+
 const sampleResult = {
   xiaohongshu:
     "标题：别再把公众号原文直接搬到小红书了\n\n很多人做内容复用，最容易犯的错就是：\n把一篇完整文章压缩一下，就当成小红书笔记。\n\n但小红书不是短版公众号。\n\n它更需要一个能立刻让人停下来的开头，一个足够具体的场景，还有读完马上能收藏的结论。\n\n所以这次改写会做三件事：\n1. 把长铺垫改成痛点开头\n2. 把完整论证拆成短段落\n3. 把结尾改成互动问题\n\n同一份内容，换个平台，就要换一种说话方式。\n\n#内容运营 #小红书写作 #公众号改写 #自媒体",
@@ -129,35 +126,57 @@ function detectInputState(content: string, platform: Platform) {
     return platform === "weixin" ? "像小红书笔记，适合扩写为公众号文章" : "像社媒文案，可继续强化小红书表达";
   }
   if (trimmed.length > 600) {
-    return platform === "xiaohongshu" ? "像公众号长文，适合压缩为小红书笔记" : "像完整文章，可继续打磨公众号结构";
+    return platform === "xiaohongshu" ? "像长文草稿，适合压缩为小红书短笔记" : "像完整文章，可继续打磨公众号结构";
   }
   return "像半成品内容，适合按目标平台重组";
+}
+
+function parseJsonResponse<T>(raw: string): T {
+  const cleaned = raw
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  return JSON.parse(cleaned) as T;
 }
 
 export default function Home() {
   const [content, setContent] = useState("");
   const [platform, setPlatform] = useState<Platform>("xiaohongshu");
-  const [accountType, setAccountType] = useState<AccountType>("life");
-  const [styleId, setStyleId] = useState("diary");
+  const [accountType, setAccountType] = useState<AccountType>("opinion");
+  const [styleId, setStyleId] = useState("argument");
   const [customStyle, setCustomStyle] = useState("");
   const [showCustomStyle, setShowCustomStyle] = useState(false);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [step, setStep] = useState<"input" | "confirm" | "result">("input");
+  const [analysis, setAnalysis] = useState<StyleAnalysis | null>(null);
+  const [selectedStyle, setSelectedStyle] = useState<XhsStyle>("经验分享");
+  const [styleCheck, setStyleCheck] = useState<StyleCheck | null>(null);
+  const [preference, setPreference] = useState("");
 
-  const accounts = accountOptions[platform];
+  const accounts = accountOptions.weixin;
   const activeAccount = accounts.find((item) => item.id === accountType) ?? accounts[0];
   const activeStyle = activeAccount.styles.find((item) => item.id === styleId) ?? activeAccount.styles[0];
   const inputState = useMemo(() => detectInputState(content, platform), [content, platform]);
   const config = platformConfig[platform];
   const displayResult = result || sampleResult[platform];
 
+  function resetOutput() {
+    setResult("");
+    setError("");
+    setCopied(false);
+    setStep("input");
+    setAnalysis(null);
+    setStyleCheck(null);
+    setPreference("");
+  }
+
   function selectPlatform(nextPlatform: Platform) {
-    const nextAccount = accountOptions[nextPlatform][0];
     setPlatform(nextPlatform);
-    setAccountType(nextAccount.id);
-    setStyleId(nextAccount.styles[0].id);
+    resetOutput();
   }
 
   function selectAccount(nextAccount: AccountOption) {
@@ -171,8 +190,28 @@ export default function Home() {
     setError("");
     setResult("");
     setCopied(false);
+    setStyleCheck(null);
 
     try {
+      if (platform === "xiaohongshu") {
+        const res = await fetch("/api/convert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content, platform, task: "route" }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+
+        const parsed = parseJsonResponse<StyleAnalysis>(data.result);
+        setAnalysis(parsed);
+        setSelectedStyle(parsed.recommended_style);
+        setStep("confirm");
+        return;
+      }
+
       const res = await fetch("/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -189,9 +228,74 @@ export default function Home() {
         setError(data.error);
       } else {
         setResult(data.result);
+        setStep("result");
       }
-    } catch {
-      setError("网络错误，请重试");
+    } catch (err) {
+      console.error(err);
+      setError("转换失败，请重试");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStyleSelect(style: XhsStyle) {
+    setSelectedStyle(style);
+    setStyleCheck(null);
+
+    if (!analysis || style === analysis.recommended_style) return;
+
+    try {
+      const res = await fetch("/api/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          platform,
+          task: "check",
+          selectedStyle: style,
+        }),
+      });
+      const data = await res.json();
+      if (!data.error) {
+        setStyleCheck(parseJsonResponse<StyleCheck>(data.result));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleGenerate(userPreference = preference) {
+    if (!content.trim()) return;
+    setLoading(true);
+    setError("");
+    setResult("");
+    setCopied(false);
+
+    try {
+      const res = await fetch("/api/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          platform,
+          task: "generate",
+          selectedStyle,
+          subDirection: analysis?.sub_direction,
+          tone: analysis?.tone,
+          emojiDensity: analysis?.emoji_density,
+          userPreference,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data.result);
+        setStep("result");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("生成失败，请重试");
     } finally {
       setLoading(false);
     }
@@ -215,7 +319,7 @@ export default function Home() {
               内容跨平台改写器
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 md:text-base">
-              小红书 ↔ 公众号，一键改写成适合发布的版本，并说明原因。
+              小红书 ↔ 公众号，把任意草稿改写成适合发布的版本，并说明为什么这样改。
             </p>
           </div>
           <div className="rounded-full border border-stone-200 bg-white/70 px-4 py-2 text-sm font-medium text-stone-600 shadow-sm">
@@ -261,68 +365,121 @@ export default function Home() {
               })}
             </div>
 
-            <div className="mt-5">
-              <SectionTitle eyebrow="2" title="账号类型" compact />
-              <div className="grid gap-2">
-                {accounts.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => selectAccount(item)}
-                    className={`rounded-2xl border px-4 py-3 text-left transition ${
-                      accountType === item.id
-                        ? "border-stone-900 bg-stone-950 text-white"
-                        : "border-stone-200 bg-white hover:border-stone-300"
-                    }`}
-                  >
-                    <span className="block text-sm font-bold">{item.name}</span>
-                    <span className={`mt-1 block text-xs ${accountType === item.id ? "text-stone-300" : "text-stone-500"}`}>
-                      {item.hint}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {platform === "weixin" ? (
+              <>
+                <div className="mt-5">
+                  <SectionTitle eyebrow="2" title="账号类型" compact />
+                  <div className="grid gap-2">
+                    {accounts.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => selectAccount(item)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          accountType === item.id
+                            ? "border-stone-900 bg-stone-950 text-white"
+                            : "border-stone-200 bg-white hover:border-stone-300"
+                        }`}
+                      >
+                        <span className="block text-sm font-bold">{item.name}</span>
+                        <span
+                          className={`mt-1 block text-xs ${
+                            accountType === item.id ? "text-stone-300" : "text-stone-500"
+                          }`}
+                        >
+                          {item.hint}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <div className="mt-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <SectionTitle eyebrow="3" title="写作风格" compact />
-                <button
-                  type="button"
-                  onClick={() => setShowCustomStyle((value) => !value)}
-                  className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50"
-                >
-                  自定义
-                </button>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {activeAccount.styles.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setStyleId(item.id)}
-                    className={`min-h-[104px] rounded-2xl border p-3 text-left transition ${
-                      styleId === item.id
-                        ? config.accent === "red"
-                          ? "border-red-300 bg-red-50"
-                          : "border-emerald-300 bg-emerald-50"
-                        : "border-stone-200 bg-stone-50 hover:bg-white"
-                    }`}
-                  >
-                    <span className="block text-sm font-black text-stone-900">{item.name}</span>
-                    <span className="mt-2 block text-xs leading-5 text-stone-500">{item.description}</span>
-                  </button>
-                ))}
-              </div>
-              {showCustomStyle && (
-                <textarea
-                  className="mt-3 min-h-[82px] w-full resize-none rounded-2xl border border-stone-200 bg-white p-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400"
-                  placeholder="补充你的不确定要求，比如：不要太营销、保留一点个人吐槽、语气更像大学生..."
-                  value={customStyle}
-                  onChange={(event) => setCustomStyle(event.target.value)}
-                />
-              )}
-            </div>
+                <div className="mt-5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <SectionTitle eyebrow="3" title="写作风格" compact />
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomStyle((value) => !value)}
+                      className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50"
+                    >
+                      自定义
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {activeAccount.styles.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setStyleId(item.id)}
+                        className={`min-h-[104px] rounded-2xl border p-3 text-left transition ${
+                          styleId === item.id
+                            ? "border-emerald-300 bg-emerald-50"
+                            : "border-stone-200 bg-stone-50 hover:bg-white"
+                        }`}
+                      >
+                        <span className="block text-sm font-black text-stone-900">{item.name}</span>
+                        <span className="mt-2 block text-xs leading-5 text-stone-500">{item.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {showCustomStyle && (
+                    <textarea
+                      className="mt-3 min-h-[82px] w-full resize-none rounded-2xl border border-stone-200 bg-white p-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400"
+                      placeholder="补充你的不确定要求，比如：不要太营销、保留一点个人吐槽、更正式..."
+                      value={customStyle}
+                      onChange={(event) => setCustomStyle(event.target.value)}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-5">
+                  <SectionTitle eyebrow="2" title="AI 先判断表达方向" compact />
+                  <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                    <p className="text-sm font-black text-red-700">
+                      {analysis
+                        ? `${analysis.recommended_style}｜${analysis.sub_direction}｜${analysis.tone}`
+                        : "粘贴内容后，先让 AI 判断它适合哪种小红书短文。"}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-stone-600">
+                      {analysis
+                        ? analysis.user_facing_summary
+                        : "用户不用一开始选分类，AI 先给推荐，用户再确认或改选。"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <SectionTitle eyebrow="3" title="确认或改选风格" compact />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {xhsStyles.map((style) => (
+                      <button
+                        key={style.value}
+                        type="button"
+                        onClick={() => handleStyleSelect(style.value)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          selectedStyle === style.value
+                            ? "border-red-300 bg-red-50"
+                            : "border-stone-200 bg-stone-50 hover:bg-white"
+                        }`}
+                      >
+                        <span className="block text-sm font-black text-stone-900">{style.label}</span>
+                        <span className="mt-1 block text-xs text-stone-500">{style.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {styleCheck?.warning && styleCheck.mismatch_level !== "none" && (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      <p>{styleCheck.warning}</p>
+                      {styleCheck.rewrite_impact && (
+                        <p className="mt-1 text-xs text-amber-700">{styleCheck.rewrite_impact}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="mt-5 flex flex-1 flex-col">
               <SectionTitle eyebrow="4" title="粘贴内容" compact />
@@ -339,7 +496,7 @@ export default function Home() {
             </div>
 
             <button
-              onClick={handleConvert}
+              onClick={platform === "xiaohongshu" && step === "confirm" ? () => handleGenerate("") : handleConvert}
               disabled={loading || !content.trim()}
               className={`mt-5 w-full rounded-2xl px-4 py-4 text-sm font-black text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-45 ${
                 config.accent === "red"
@@ -347,7 +504,15 @@ export default function Home() {
                   : "bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700"
               }`}
             >
-              {loading ? "正在转换..." : config.targetLabel}
+              {loading
+                ? platform === "xiaohongshu"
+                  ? step === "confirm"
+                    ? "正在生成..."
+                    : "正在分析..."
+                  : "正在转换..."
+                : platform === "xiaohongshu" && step === "confirm"
+                  ? "按这个方向生成"
+                  : config.targetLabel}
             </button>
           </section>
 
@@ -369,8 +534,17 @@ export default function Home() {
 
             <div className="flex flex-wrap gap-2">
               <CompactTag label="目标" value={config.name} tone={config.accent} />
-              <CompactTag label="账号" value={activeAccount.name} />
-              <CompactTag label="风格" value={activeStyle.name} />
+              {platform === "weixin" ? (
+                <>
+                  <CompactTag label="账号" value={activeAccount.name} />
+                  <CompactTag label="风格" value={activeStyle.name} />
+                </>
+              ) : (
+                <>
+                  <CompactTag label="分类" value={selectedStyle} />
+                  <CompactTag label="语气" value={analysis?.tone || "待分析"} />
+                </>
+              )}
             </div>
 
             <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
@@ -378,15 +552,29 @@ export default function Home() {
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-950">原文识别</span>
                 <span className="text-sm text-stone-300">{inputState}</span>
               </div>
+              {platform === "xiaohongshu" && analysis && (
+                <div className="mt-3 rounded-2xl bg-black/20 p-3">
+                  <p className="text-sm font-black text-white">
+                    AI 推荐：{analysis.recommended_style}｜{analysis.sub_direction}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-stone-300">{analysis.reason}</p>
+                  <p className="mt-2 text-xs text-stone-400">
+                    emoji 密度：{analysis.emoji_density} · 置信度：
+                    {Math.round((analysis.confidence || 0) * 100)}%
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-3xl border border-white/10 bg-[#fbfaf6] text-stone-950">
               <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Draft</p>
-                  <h3 className="mt-1 text-lg font-black">{result ? `${config.name}改写稿` : "示例改写稿"}</h3>
+                  <h3 className="mt-1 text-lg font-black">
+                    {result ? `${config.name}改写稿` : analysis ? "确认方向后生成真实结果" : "示例改写稿"}
+                  </h3>
                 </div>
-                {!result && !loading && (
+                {!result && !loading && !analysis && (
                   <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-500">示例预览</span>
                 )}
               </div>
@@ -397,11 +585,25 @@ export default function Home() {
                     <div className="h-4 w-2/3 animate-pulse rounded-full bg-stone-200" />
                     <div className="h-4 w-full animate-pulse rounded-full bg-stone-200" />
                     <div className="h-4 w-5/6 animate-pulse rounded-full bg-stone-200" />
-                    <p className="pt-3 text-sm text-stone-500">正在按你的账号画像和目标平台改写...</p>
+                    <p className="pt-3 text-sm text-stone-500">
+                      {platform === "xiaohongshu" && step !== "confirm"
+                        ? "正在判断最适合的小红书表达方向..."
+                        : "正在按目标平台改写..."}
+                    </p>
                   </div>
                 )}
-                {!loading && !error && (
-                  <pre className={`whitespace-pre-wrap font-sans text-sm leading-7 ${result ? "text-stone-950" : "text-stone-500"}`}>{displayResult}</pre>
+                {!loading && !error && analysis && !result && platform === "xiaohongshu" && (
+                  <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                    <p className="text-sm font-black text-red-700">{analysis.user_facing_summary}</p>
+                    <p className="mt-2 text-sm leading-6 text-stone-700">
+                      你可以直接生成，也可以在左侧改选成其他风格。用户最终拍板，AI 只负责降低判断成本。
+                    </p>
+                  </div>
+                )}
+                {!loading && !error && (!analysis || result || platform === "weixin") && (
+                  <pre className={`whitespace-pre-wrap font-sans text-sm leading-7 ${result ? "text-stone-950" : "text-stone-500"}`}>
+                    {displayResult}
+                  </pre>
                 )}
               </div>
             </div>
@@ -413,7 +615,52 @@ export default function Home() {
                 <ReasonPill label="强化" text={platform === "xiaohongshu" ? "钩子和收藏点" : "结构和论证"} />
                 <ReasonPill label="删掉" text={platform === "xiaohongshu" ? "长铺垫" : "标签感"} />
               </div>
-              {customStyle && <p className="mt-3 text-sm leading-6 text-stone-300">已加入自定义要求：{customStyle}</p>}
+              {platform === "xiaohongshu" && result && (
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <p className="text-sm font-black text-white">不满意就直接说</p>
+                  <textarea
+                    value={preference}
+                    onChange={(event) => setPreference(event.target.value)}
+                    className="mt-3 min-h-[82px] w-full resize-none rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-white outline-none placeholder:text-stone-500 focus:border-white/30"
+                    placeholder="比如：不要 emoji、标题更直接、语气更克制、不要像营销号..."
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = "少用 emoji，语气更自然克制，不要太像营销号";
+                        setPreference(next);
+                        handleGenerate(next);
+                      }}
+                      className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                    >
+                      更自然克制
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = "表达更口语、更有小红书轻吐槽感，可以适度增加 emoji";
+                        setPreference(next);
+                        handleGenerate(next);
+                      }}
+                      className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                    >
+                      更有吐槽感
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleGenerate()}
+                      disabled={!preference.trim() || loading}
+                      className="ml-auto rounded-full bg-white px-4 py-2 text-xs font-black text-stone-950 transition hover:bg-stone-200 disabled:opacity-40"
+                    >
+                      按意见再改一版
+                    </button>
+                  </div>
+                </div>
+              )}
+              {platform === "weixin" && customStyle && (
+                <p className="mt-3 text-sm leading-6 text-stone-300">已加入自定义要求：{customStyle}</p>
+              )}
             </div>
           </section>
         </div>
@@ -454,4 +701,3 @@ function ReasonPill({ label, text }: { label: string; text: string }) {
     </div>
   );
 }
-
