@@ -1,23 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 
 type Platform = "weixin" | "xiaohongshu";
-type AccountType = "life" | "emotion" | "career" | "growth" | "review" | "opinion";
 type XhsStyle = "干货分享" | "经验分享" | "个人观点" | "情绪抒发" | "生活记录";
-
-type StyleOption = {
-  id: string;
-  name: string;
-  description: string;
-};
-
-type AccountOption = {
-  id: AccountType;
-  name: string;
-  hint: string;
-  styles: StyleOption[];
-};
+type WeixinType = "情绪共鸣" | "经验干货" | "热点观点" | "人设故事" | "通用兜底";
 
 type StyleAnalysis = {
   recommended_style: XhsStyle;
@@ -39,6 +26,23 @@ type StyleCheck = {
   rewrite_impact: string;
 };
 
+type WeixinAnalysis = {
+  recommended_type: WeixinType;
+  reason: string;
+  user_facing_summary: string;
+  confidence: number;
+  alternative_types: string[];
+};
+
+type WeixinTypeCheck = {
+  is_suitable: boolean;
+  mismatch_level: "none" | "mild" | "obvious" | "strong";
+  recommended_type: string;
+  warning: string;
+  can_continue: boolean;
+  rewrite_impact: string;
+};
+
 const platformConfig = {
   xiaohongshu: {
     name: "小红书",
@@ -53,7 +57,7 @@ const platformConfig = {
     shortName: "公众号",
     accent: "green",
     description: "结构完整、观点清楚、适合深度阅读。",
-    targetLabel: "改成公众号文章",
+    targetLabel: "分析公众号方向",
     sourceGuess: "更适合从小红书笔记、短文案或碎片灵感扩写而来。",
   },
 } satisfies Record<
@@ -68,47 +72,20 @@ const platformConfig = {
   }
 >;
 
-const accountOptions: Record<"weixin", AccountOption[]> = {
-  weixin: [
-    {
-      id: "opinion",
-      name: "深度观点",
-      hint: "观察 / 判断 / 评论",
-      styles: [
-        { id: "argument", name: "观点论述", description: "先提出判断，再用逻辑和案例展开。" },
-        { id: "analysis", name: "深度分析", description: "适合更正式、更完整的长文章结构。" },
-        { id: "sharp", name: "克制犀利", description: "有立场但不吵闹，适合建立专业感。" },
-      ],
-    },
-    {
-      id: "career",
-      name: "职场经验",
-      hint: "方法 / 复盘 / 成长",
-      styles: [
-        { id: "method", name: "方法论拆解", description: "把经验整理成框架、步骤和可执行建议。" },
-        { id: "review", name: "经验复盘", description: "从真实经历出发，讲问题、选择和结果。" },
-        { id: "case", name: "案例分析", description: "用一个案例展开，最后提炼结论。" },
-      ],
-    },
-    {
-      id: "growth",
-      name: "个人成长",
-      hint: "认知 / 学习 / 表达",
-      styles: [
-        { id: "warm", name: "温和陪伴", description: "保留温度，降低说教感。" },
-        { id: "system", name: "系统表达", description: "把零散观点组织成完整文章。" },
-        { id: "essay", name: "叙事随笔", description: "更有个人气质，适合建立长期信任。" },
-      ],
-    },
-  ],
-};
-
 const xhsStyles: Array<{ value: XhsStyle; label: string; desc: string }> = [
   { value: "干货分享", label: "干货分享", desc: "方法、步骤、技巧" },
   { value: "经验分享", label: "经验分享", desc: "经历、踩坑、复盘" },
   { value: "个人观点", label: "个人观点", desc: "看法、判断、立场" },
   { value: "情绪抒发", label: "情绪抒发", desc: "心情、感受、内心独白" },
   { value: "生活记录", label: "生活记录", desc: "日常片段、状态记录" },
+];
+
+const weixinTypes: Array<{ value: WeixinType; label: string; desc: string }> = [
+  { value: "情绪共鸣", label: "情绪共鸣", desc: "感悟、情绪、关系话题" },
+  { value: "经验干货", label: "经验干货", desc: "方法、步骤、实用建议" },
+  { value: "热点观点", label: "热点观点", desc: "事件、趋势、观点分析" },
+  { value: "人设故事", label: "人设故事", desc: "经历、转折、人物故事" },
+  { value: "通用兜底", label: "通用兜底", desc: "混合内容或类型不明确" },
 ];
 
 const sampleResult = {
@@ -131,6 +108,17 @@ function detectInputState(content: string, platform: Platform) {
   return "像半成品内容，适合按目标平台重组";
 }
 
+function parseXhsResult(text: string) {
+  const titleMatch = /标题[：:]\s*\n?([^\n]+)/.exec(text);
+  const bodyMatch = /正文[：:]\s*\n([\s\S]+?)(?:\n\n?标签[：:]|$)/.exec(text);
+  const tagsMatch = /标签[：:]\s*\n?([\s\S]+)$/.exec(text);
+  return {
+    title: titleMatch?.[1]?.trim() ?? "",
+    body: bodyMatch?.[1]?.trim() ?? "",
+    tags: tagsMatch?.[1]?.trim() ?? "",
+  };
+}
+
 function parseJsonResponse<T>(raw: string): T {
   const cleaned = raw
     .replace(/^```json\s*/i, "")
@@ -140,26 +128,125 @@ function parseJsonResponse<T>(raw: string): T {
   return JSON.parse(cleaned) as T;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatInlineMarkdown(value: string) {
+  return escapeHtml(value)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(.+?)__/g, "<strong>$1</strong>");
+}
+
+function renderParagraph(lines: string[]) {
+  if (lines.length === 0) return "";
+  return `<p style="margin: 0 0 18px; color: #2f2a25; font-size: 16px; line-height: 1.9;">${lines
+    .map((line) => formatInlineMarkdown(line))
+    .join("<br>")}</p>`;
+}
+
+function markdownToWeixinHtml(markdown: string) {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const html: string[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listType: "ol" | "ul" | null = null;
+
+  function flushParagraph() {
+    const rendered = renderParagraph(paragraph);
+    if (rendered) html.push(rendered);
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!listType || listItems.length === 0) return;
+    const tag = listType;
+    html.push(
+      `<${tag} style="margin: 0 0 20px; padding-left: 1.4em; color: #2f2a25; font-size: 16px; line-height: 1.9;">${listItems
+        .map((item) => `<li style="margin: 0 0 8px;">${formatInlineMarkdown(item)}</li>`)
+        .join("")}</${tag}>`
+    );
+    listItems = [];
+    listType = null;
+  }
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      const content = formatInlineMarkdown(heading[2]);
+      if (level === 1) {
+        html.push(
+          `<h1 style="margin: 0 0 24px; color: #1f1b16; font-size: 24px; line-height: 1.45; font-weight: 800;">${content}</h1>`
+        );
+      } else {
+        html.push(
+          `<h2 style="margin: 28px 0 14px; color: #1f1b16; font-size: 19px; line-height: 1.55; font-weight: 800;">${content}</h2>`
+        );
+      }
+      return;
+    }
+
+    const ordered = /^\d+[.)、]\s+(.+)$/.exec(trimmed);
+    const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (ordered || unordered) {
+      flushParagraph();
+      const nextType = ordered ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((ordered ?? unordered)?.[1] ?? trimmed);
+      return;
+    }
+
+    flushList();
+    paragraph.push(trimmed);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return `<section style="box-sizing: border-box; max-width: 100%; color: #2f2a25; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;">${html.join(
+    ""
+  )}</section>`;
+}
+
 export default function Home() {
   const [content, setContent] = useState("");
   const [platform, setPlatform] = useState<Platform>("xiaohongshu");
-  const [accountType, setAccountType] = useState<AccountType>("opinion");
-  const [styleId, setStyleId] = useState("argument");
-  const [customStyle, setCustomStyle] = useState("");
-  const [showCustomStyle, setShowCustomStyle] = useState(false);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedTitle, setCopiedTitle] = useState(false);
+  const [copiedBody, setCopiedBody] = useState(false);
   const [step, setStep] = useState<"input" | "confirm" | "result">("input");
+  const [preference, setPreference] = useState("");
+
+  // 小红书专用状态
   const [analysis, setAnalysis] = useState<StyleAnalysis | null>(null);
   const [selectedStyle, setSelectedStyle] = useState<XhsStyle>("经验分享");
   const [styleCheck, setStyleCheck] = useState<StyleCheck | null>(null);
-  const [preference, setPreference] = useState("");
 
-  const accounts = accountOptions.weixin;
-  const activeAccount = accounts.find((item) => item.id === accountType) ?? accounts[0];
-  const activeStyle = activeAccount.styles.find((item) => item.id === styleId) ?? activeAccount.styles[0];
+  // 公众号专用状态
+  const [weixinAnalysis, setWeixinAnalysis] = useState<WeixinAnalysis | null>(null);
+  const [selectedWeixinType, setSelectedWeixinType] = useState<WeixinType>("经验干货");
+  const [weixinTypeCheck, setWeixinTypeCheck] = useState<WeixinTypeCheck | null>(null);
+
   const inputState = useMemo(() => detectInputState(content, platform), [content, platform]);
   const config = platformConfig[platform];
   const displayResult = result || sampleResult[platform];
@@ -171,6 +258,8 @@ export default function Home() {
     setStep("input");
     setAnalysis(null);
     setStyleCheck(null);
+    setWeixinAnalysis(null);
+    setWeixinTypeCheck(null);
     setPreference("");
   }
 
@@ -179,9 +268,19 @@ export default function Home() {
     resetOutput();
   }
 
-  function selectAccount(nextAccount: AccountOption) {
-    setAccountType(nextAccount.id);
-    setStyleId(nextAccount.styles[0].id);
+  function handleContentChange(nextContent: string) {
+    setContent(nextContent);
+    if (result || analysis || weixinAnalysis || error || styleCheck || weixinTypeCheck) {
+      setResult("");
+      setError("");
+      setCopied(false);
+      setStep("input");
+      setAnalysis(null);
+      setStyleCheck(null);
+      setWeixinAnalysis(null);
+      setWeixinTypeCheck(null);
+      setPreference("");
+    }
   }
 
   async function handleConvert() {
@@ -193,46 +292,31 @@ export default function Home() {
     setStyleCheck(null);
 
     try {
-      if (platform === "xiaohongshu") {
-        const res = await fetch("/api/convert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, platform, task: "route" }),
-        });
-        const data = await res.json();
-        if (data.error) {
-          setError(data.error);
-          return;
-        }
-
-        const parsed = parseJsonResponse<StyleAnalysis>(data.result);
-        setAnalysis(parsed);
-        setSelectedStyle(parsed.recommended_style);
-        setStep("confirm");
-        return;
-      }
-
+      // 两个平台都先走路由分析
       const res = await fetch("/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content,
-          platform,
-          accountType: activeAccount.name,
-          style: activeStyle.name,
-          customStyle,
-        }),
+        body: JSON.stringify({ content, platform, task: "route" }),
       });
       const data = await res.json();
       if (data.error) {
         setError(data.error);
-      } else {
-        setResult(data.result);
-        setStep("result");
+        return;
       }
+
+      if (platform === "xiaohongshu") {
+        const parsed = parseJsonResponse<StyleAnalysis>(data.result);
+        setAnalysis(parsed);
+        setSelectedStyle(parsed.recommended_style);
+      } else {
+        const parsed = parseJsonResponse<WeixinAnalysis>(data.result);
+        setWeixinAnalysis(parsed);
+        setSelectedWeixinType(parsed.recommended_type);
+      }
+      setStep("confirm");
     } catch (err) {
       console.error(err);
-      setError("转换失败，请重试");
+      setError("分析失败，请重试");
     } finally {
       setLoading(false);
     }
@@ -248,16 +332,32 @@ export default function Home() {
       const res = await fetch("/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content,
-          platform,
-          task: "check",
-          selectedStyle: style,
-        }),
+        body: JSON.stringify({ content, platform, task: "check", selectedStyle: style }),
       });
       const data = await res.json();
       if (!data.error) {
         setStyleCheck(parseJsonResponse<StyleCheck>(data.result));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleWeixinTypeSelect(type: WeixinType) {
+    setSelectedWeixinType(type);
+    setWeixinTypeCheck(null);
+
+    if (!weixinAnalysis || type === weixinAnalysis.recommended_type) return;
+
+    try {
+      const res = await fetch("/api/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, platform, task: "check", selectedType: type }),
+      });
+      const data = await res.json();
+      if (!data.error) {
+        setWeixinTypeCheck(parseJsonResponse<WeixinTypeCheck>(data.result));
       }
     } catch (err) {
       console.error(err);
@@ -272,26 +372,45 @@ export default function Home() {
     setCopied(false);
 
     try {
+      const body =
+        platform === "xiaohongshu"
+          ? {
+              content,
+              platform,
+              task: "generate",
+              selectedStyle,
+              subDirection: analysis?.sub_direction,
+              tone: analysis?.tone,
+              emojiDensity: analysis?.emoji_density,
+              userPreference,
+            }
+          : {
+              content,
+              platform,
+              task: "generate",
+              selectedType: selectedWeixinType,
+              userPreference,
+            };
+
       const res = await fetch("/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content,
-          platform,
-          task: "generate",
-          selectedStyle,
-          subDirection: analysis?.sub_direction,
-          tone: analysis?.tone,
-          emojiDensity: analysis?.emoji_density,
-          userPreference,
-        }),
+        body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setResult(data.result);
-        setStep("result");
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "生成失败");
+        return;
+      }
+      setStep("result");
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        setResult(accumulated);
       }
     } catch (err) {
       console.error(err);
@@ -301,9 +420,40 @@ export default function Home() {
     }
   }
 
+  async function handleCopyXhsTitle() {
+    const { title } = parseXhsResult(result);
+    if (!title) return;
+    await navigator.clipboard.writeText(title);
+    setCopiedTitle(true);
+    setTimeout(() => setCopiedTitle(false), 2000);
+  }
+
+  async function handleCopyXhsBody() {
+    const { body, tags } = parseXhsResult(result);
+    const text = tags ? `${body}\n\n${tags}` : body;
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedBody(true);
+    setTimeout(() => setCopiedBody(false), 2000);
+  }
+
   async function handleCopy() {
     if (!result) return;
-    await navigator.clipboard.writeText(result);
+    if (platform === "weixin" && "ClipboardItem" in window) {
+      const html = markdownToWeixinHtml(result);
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([result], { type: "text/plain" }),
+          }),
+        ]);
+      } catch {
+        await navigator.clipboard.writeText(result);
+      }
+    } else {
+      await navigator.clipboard.writeText(result);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -365,81 +515,38 @@ export default function Home() {
               })}
             </div>
 
-            {platform === "weixin" ? (
-              <>
-                <div className="mt-5">
-                  <SectionTitle eyebrow="2" title="账号类型" compact />
-                  <div className="grid gap-2">
-                    {accounts.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => selectAccount(item)}
-                        className={`rounded-2xl border px-4 py-3 text-left transition ${
-                          accountType === item.id
-                            ? "border-stone-900 bg-stone-950 text-white"
-                            : "border-stone-200 bg-white hover:border-stone-300"
-                        }`}
-                      >
-                        <span className="block text-sm font-bold">{item.name}</span>
-                        <span
-                          className={`mt-1 block text-xs ${
-                            accountType === item.id ? "text-stone-300" : "text-stone-500"
-                          }`}
-                        >
-                          {item.hint}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            <div className="mt-5 flex flex-1 flex-col">
+              <SectionTitle eyebrow="2" title="粘贴内容" compact />
+              <textarea
+                className="min-h-[220px] flex-1 resize-none rounded-2xl border border-stone-200 bg-[#fffdf8] p-4 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400 focus:bg-white"
+                placeholder="先粘贴草稿、提纲、文章、口述稿或几句零散想法，再确认表达方向。"
+                value={content}
+                onChange={(event) => handleContentChange(event.target.value)}
+              />
+              <div className="mt-2 flex items-center justify-between text-xs text-stone-400">
+                <span>{content.length > 0 ? inputState : "导入内容后，再做风格判断和选择。"}</span>
+                <span>{content.length} / 3000</span>
+              </div>
+            </div>
 
-                <div className="mt-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <SectionTitle eyebrow="3" title="写作风格" compact />
-                    <button
-                      type="button"
-                      onClick={() => setShowCustomStyle((value) => !value)}
-                      className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50"
-                    >
-                      自定义
-                    </button>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {activeAccount.styles.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setStyleId(item.id)}
-                        className={`min-h-[104px] rounded-2xl border p-3 text-left transition ${
-                          styleId === item.id
-                            ? "border-emerald-300 bg-emerald-50"
-                            : "border-stone-200 bg-stone-50 hover:bg-white"
-                        }`}
-                      >
-                        <span className="block text-sm font-black text-stone-900">{item.name}</span>
-                        <span className="mt-2 block text-xs leading-5 text-stone-500">{item.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {showCustomStyle && (
-                    <textarea
-                      className="mt-3 min-h-[82px] w-full resize-none rounded-2xl border border-stone-200 bg-white p-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400"
-                      placeholder="补充你的不确定要求，比如：不要太营销、保留一点个人吐槽、更正式..."
-                      value={customStyle}
-                      onChange={(event) => setCustomStyle(event.target.value)}
-                    />
-                  )}
-                </div>
-              </>
-            ) : (
+            {!content.trim() && (
+              <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                <p className="text-sm font-black text-stone-800">下一步：导入内容后再选择</p>
+                <p className="mt-2 text-xs leading-5 text-stone-500">
+                  先让 AI 看见材料，再推荐或确认风格，避免用户一开始凭空判断。
+                </p>
+              </div>
+            )}
+
+            {/* 小红书：AI 判断 + 用户确认 */}
+            {platform === "xiaohongshu" && content.trim() && (
               <>
                 <div className="mt-5">
-                  <SectionTitle eyebrow="2" title="AI 先判断表达方向" compact />
+                  <SectionTitle eyebrow="3" title="AI 先判断表达方向" compact />
                   <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
                     <p className="text-sm font-black text-red-700">
                       {analysis
-                        ? `${analysis.recommended_style}｜${analysis.sub_direction}｜${analysis.tone}`
+                        ? analysis.recommended_style
                         : "粘贴内容后，先让 AI 判断它适合哪种小红书短文。"}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-stone-600">
@@ -450,53 +557,93 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-5">
-                  <SectionTitle eyebrow="3" title="确认或改选风格" compact />
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {xhsStyles.map((style) => (
-                      <button
-                        key={style.value}
-                        type="button"
-                        onClick={() => handleStyleSelect(style.value)}
-                        className={`rounded-2xl border px-4 py-3 text-left transition ${
-                          selectedStyle === style.value
-                            ? "border-red-300 bg-red-50"
-                            : "border-stone-200 bg-stone-50 hover:bg-white"
-                        }`}
-                      >
-                        <span className="block text-sm font-black text-stone-900">{style.label}</span>
-                        <span className="mt-1 block text-xs text-stone-500">{style.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {styleCheck?.warning && styleCheck.mismatch_level !== "none" && (
-                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                      <p>{styleCheck.warning}</p>
-                      {styleCheck.rewrite_impact && (
-                        <p className="mt-1 text-xs text-amber-700">{styleCheck.rewrite_impact}</p>
-                      )}
+                {analysis && (
+                  <div className="mt-5">
+                    <SectionTitle eyebrow="4" title="确认或改选风格" compact />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {xhsStyles.map((style) => (
+                        <button
+                          key={style.value}
+                          type="button"
+                          onClick={() => handleStyleSelect(style.value)}
+                          className={`rounded-2xl border px-4 py-3 text-left transition ${
+                            selectedStyle === style.value
+                              ? "border-red-300 bg-red-50"
+                              : "border-stone-200 bg-stone-50 hover:bg-white"
+                          }`}
+                        >
+                          <span className="block text-sm font-black text-stone-900">{style.label}</span>
+                          <span className="mt-1 block text-xs text-stone-500">{style.desc}</span>
+                        </button>
+                      ))}
                     </div>
-                  )}
-                </div>
+                    {styleCheck?.warning && styleCheck.mismatch_level !== "none" && (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p>{styleCheck.warning}</p>
+                        {styleCheck.rewrite_impact && (
+                          <p className="mt-1 text-xs text-amber-700">{styleCheck.rewrite_impact}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 
-            <div className="mt-5 flex flex-1 flex-col">
-              <SectionTitle eyebrow="4" title="粘贴内容" compact />
-              <textarea
-                className="min-h-[220px] flex-1 resize-none rounded-2xl border border-stone-200 bg-[#fffdf8] p-4 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400 focus:bg-white"
-                placeholder="粘贴已有的小红书文案、公众号文章、草稿或碎片想法..."
-                value={content}
-                onChange={(event) => setContent(event.target.value)}
-              />
-              <div className="mt-2 flex items-center justify-between text-xs text-stone-400">
-                <span>{content.length > 0 ? inputState : config.sourceGuess}</span>
-                <span>{content.length} / 3000</span>
-              </div>
-            </div>
+            {/* 公众号：AI 判断 + 用户确认 */}
+            {platform === "weixin" && content.trim() && (
+              <>
+                <div className="mt-5">
+                  <SectionTitle eyebrow="3" title="AI 先判断内容类型" compact />
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                    <p className="text-sm font-black text-emerald-700">
+                      {weixinAnalysis
+                        ? weixinAnalysis.recommended_type
+                        : "粘贴内容后，先让 AI 判断适合哪种公众号写法。"}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-stone-600">
+                      {weixinAnalysis
+                        ? weixinAnalysis.user_facing_summary
+                        : "AI 先分析，用户再确认，减少判断成本。"}
+                    </p>
+                  </div>
+                </div>
+
+                {weixinAnalysis && (
+                  <div className="mt-5">
+                    <SectionTitle eyebrow="4" title="确认或改选类型" compact />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {weixinTypes.map((type) => (
+                        <button
+                          key={type.value}
+                          type="button"
+                          onClick={() => handleWeixinTypeSelect(type.value)}
+                          className={`rounded-2xl border px-4 py-3 text-left transition ${
+                            selectedWeixinType === type.value
+                              ? "border-emerald-300 bg-emerald-50"
+                              : "border-stone-200 bg-stone-50 hover:bg-white"
+                          }`}
+                        >
+                          <span className="block text-sm font-black text-stone-900">{type.label}</span>
+                          <span className="mt-1 block text-xs text-stone-500">{type.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {weixinTypeCheck?.warning && weixinTypeCheck.mismatch_level !== "none" && (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p>{weixinTypeCheck.warning}</p>
+                        {weixinTypeCheck.rewrite_impact && (
+                          <p className="mt-1 text-xs text-amber-700">{weixinTypeCheck.rewrite_impact}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
             <button
-              onClick={platform === "xiaohongshu" && step === "confirm" ? () => handleGenerate("") : handleConvert}
+              onClick={step === "confirm" ? () => handleGenerate("") : handleConvert}
               disabled={loading || !content.trim()}
               className={`mt-5 w-full rounded-2xl px-4 py-4 text-sm font-black text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-45 ${
                 config.accent === "red"
@@ -505,12 +652,10 @@ export default function Home() {
               }`}
             >
               {loading
-                ? platform === "xiaohongshu"
-                  ? step === "confirm"
-                    ? "正在生成..."
-                    : "正在分析..."
-                  : "正在转换..."
-                : platform === "xiaohongshu" && step === "confirm"
+                ? step === "confirm"
+                  ? "正在生成..."
+                  : "正在分析..."
+                : step === "confirm"
                   ? "按这个方向生成"
                   : config.targetLabel}
             </button>
@@ -522,23 +667,36 @@ export default function Home() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">Preview</p>
                 <h2 className="mt-2 text-2xl font-black tracking-tight">输出结果</h2>
               </div>
-              {result && (
+              {result && platform === "weixin" && (
                 <button
                   onClick={handleCopy}
                   className="rounded-full bg-white px-4 py-2 text-xs font-black text-stone-950 transition hover:bg-stone-200"
                 >
-                  {copied ? "已复制" : platform === "weixin" ? "复制公众号版本" : "复制小红书版本"}
+                  {copied ? "已复制" : "复制公众号版本"}
                 </button>
+              )}
+              {result && platform === "xiaohongshu" && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyXhsTitle}
+                    className="rounded-full bg-white px-4 py-2 text-xs font-black text-stone-950 transition hover:bg-stone-200"
+                  >
+                    {copiedTitle ? "已复制" : "复制标题"}
+                  </button>
+                  <button
+                    onClick={handleCopyXhsBody}
+                    className="rounded-full bg-white/20 px-4 py-2 text-xs font-black text-white transition hover:bg-white/30"
+                  >
+                    {copiedBody ? "已复制" : "复制正文+标签"}
+                  </button>
+                </div>
               )}
             </div>
 
             <div className="flex flex-wrap gap-2">
               <CompactTag label="目标" value={config.name} tone={config.accent} />
               {platform === "weixin" ? (
-                <>
-                  <CompactTag label="账号" value={activeAccount.name} />
-                  <CompactTag label="风格" value={activeStyle.name} />
-                </>
+                <CompactTag label="类型" value={weixinAnalysis ? selectedWeixinType : "待分析"} />
               ) : (
                 <>
                   <CompactTag label="分类" value={selectedStyle} />
@@ -564,6 +722,17 @@ export default function Home() {
                   </p>
                 </div>
               )}
+              {platform === "weixin" && weixinAnalysis && (
+                <div className="mt-3 rounded-2xl bg-black/20 p-3">
+                  <p className="text-sm font-black text-white">
+                    AI 推荐：{weixinAnalysis.recommended_type}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-stone-300">{weixinAnalysis.reason}</p>
+                  <p className="mt-2 text-xs text-stone-400">
+                    置信度：{Math.round((weixinAnalysis.confidence || 0) * 100)}%
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-3xl border border-white/10 bg-[#fbfaf6] text-stone-950">
@@ -571,39 +740,74 @@ export default function Home() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Draft</p>
                   <h3 className="mt-1 text-lg font-black">
-                    {result ? `${config.name}改写稿` : analysis ? "确认方向后生成真实结果" : "示例改写稿"}
+                    {result
+                      ? `${config.name}改写稿`
+                      : analysis || weixinAnalysis
+                        ? "确认方向后生成真实结果"
+                        : "示例改写稿"}
                   </h3>
                 </div>
-                {!result && !loading && !analysis && (
+                {!result && !loading && !analysis && !weixinAnalysis && (
                   <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-500">示例预览</span>
                 )}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-5">
                 {error && <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">{error}</p>}
-                {loading && (
+                {loading && !result && (
                   <div className="space-y-3">
                     <div className="h-4 w-2/3 animate-pulse rounded-full bg-stone-200" />
                     <div className="h-4 w-full animate-pulse rounded-full bg-stone-200" />
                     <div className="h-4 w-5/6 animate-pulse rounded-full bg-stone-200" />
                     <p className="pt-3 text-sm text-stone-500">
-                      {platform === "xiaohongshu" && step !== "confirm"
-                        ? "正在判断最适合的小红书表达方向..."
-                        : "正在按目标平台改写..."}
+                      {step !== "confirm" ? "正在判断最适合的表达方向..." : "正在按目标平台改写..."}
                     </p>
                   </div>
                 )}
-                {!loading && !error && analysis && !result && platform === "xiaohongshu" && (
-                  <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
-                    <p className="text-sm font-black text-red-700">{analysis.user_facing_summary}</p>
+                {!loading && !error && (analysis || weixinAnalysis) && !result && (
+                  <div
+                    className={`rounded-2xl border p-4 ${
+                      platform === "xiaohongshu"
+                        ? "border-red-100 bg-red-50"
+                        : "border-emerald-100 bg-emerald-50"
+                    }`}
+                  >
+                    <p
+                      className={`text-sm font-black ${
+                        platform === "xiaohongshu" ? "text-red-700" : "text-emerald-700"
+                      }`}
+                    >
+                      {platform === "xiaohongshu"
+                        ? analysis?.user_facing_summary
+                        : weixinAnalysis?.user_facing_summary}
+                    </p>
                     <p className="mt-2 text-sm leading-6 text-stone-700">
-                      你可以直接生成，也可以在左侧改选成其他风格。用户最终拍板，AI 只负责降低判断成本。
+                      你可以直接生成，也可以在左侧改选成其他风格。AI 只负责降低判断成本，用户最终拍板。
                     </p>
                   </div>
                 )}
-                {!loading && !error && (!analysis || result || platform === "weixin") && (
-                  <pre className={`whitespace-pre-wrap font-sans text-sm leading-7 ${result ? "text-stone-950" : "text-stone-500"}`}>
-                    {displayResult}
-                  </pre>
+                {!loading && !error && !analysis && !weixinAnalysis && (
+                  platform === "weixin" ? (
+                    <div
+                      className="text-stone-500"
+                      dangerouslySetInnerHTML={{ __html: markdownToWeixinHtml(displayResult) }}
+                    />
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-stone-500">
+                      {displayResult}
+                    </pre>
+                  )
+                )}
+                {!error && result && (
+                  platform === "weixin" ? (
+                    <div
+                      className="text-stone-950"
+                      dangerouslySetInnerHTML={{ __html: markdownToWeixinHtml(result) }}
+                    />
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-stone-950">
+                      {result}
+                    </pre>
+                  )
                 )}
               </div>
             </div>
@@ -615,38 +819,67 @@ export default function Home() {
                 <ReasonPill label="强化" text={platform === "xiaohongshu" ? "钩子和收藏点" : "结构和论证"} />
                 <ReasonPill label="删掉" text={platform === "xiaohongshu" ? "长铺垫" : "标签感"} />
               </div>
-              {platform === "xiaohongshu" && result && (
+              {result && (
                 <div className="mt-4 border-t border-white/10 pt-4">
                   <p className="text-sm font-black text-white">不满意就直接说</p>
                   <textarea
                     value={preference}
                     onChange={(event) => setPreference(event.target.value)}
                     className="mt-3 min-h-[82px] w-full resize-none rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-white outline-none placeholder:text-stone-500 focus:border-white/30"
-                    placeholder="比如：不要 emoji、标题更直接、语气更克制、不要像营销号..."
+                    placeholder="比如：不要 emoji、语气更克制、开头更有冲击力..."
                   />
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = "少用 emoji，语气更自然克制，不要太像营销号";
-                        setPreference(next);
-                        handleGenerate(next);
-                      }}
-                      className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
-                    >
-                      更自然克制
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = "表达更口语、更有小红书轻吐槽感，可以适度增加 emoji";
-                        setPreference(next);
-                        handleGenerate(next);
-                      }}
-                      className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
-                    >
-                      更有吐槽感
-                    </button>
+                    {platform === "xiaohongshu" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = "少用 emoji，语气更自然克制，不要太像营销号";
+                            setPreference(next);
+                            handleGenerate(next);
+                          }}
+                          className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                        >
+                          更自然克制
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = "表达更口语、更有小红书轻吐槽感，可以适度增加 emoji";
+                            setPreference(next);
+                            handleGenerate(next);
+                          }}
+                          className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                        >
+                          更有吐槽感
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = "语气更克制、专业，减少情绪化表达";
+                            setPreference(next);
+                            handleGenerate(next);
+                          }}
+                          className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                        >
+                          更克制专业
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = "开头更有冲击力，第一句话更抓人";
+                            setPreference(next);
+                            handleGenerate(next);
+                          }}
+                          className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-white/15"
+                        >
+                          开头更抓人
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleGenerate()}
@@ -657,9 +890,6 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
-              )}
-              {platform === "weixin" && customStyle && (
-                <p className="mt-3 text-sm leading-6 text-stone-300">已加入自定义要求：{customStyle}</p>
               )}
             </div>
           </section>

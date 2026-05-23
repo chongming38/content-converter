@@ -99,19 +99,53 @@ async function createChatCompletion(params: {
   throw lastError;
 }
 
+async function createStreamingCompletion(params: {
+  task: string;
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+}) {
+  const config = getApiConfig(params.task);
+
+  if (config.keys.length === 0) {
+    throw new Error(`${config.provider} API key 未配置`);
+  }
+
+  let lastError: unknown;
+
+  for (const apiKey of config.keys) {
+    try {
+      const client = new OpenAI({
+        apiKey,
+        baseURL: config.baseURL,
+      });
+
+      return await client.chat.completions.create({
+        model: config.model,
+        messages: params.messages,
+        stream: true,
+      });
+    } catch (error) {
+      lastError = error;
+      console.error(`${config.provider} 调用失败，尝试下一个 key:`, error);
+    }
+  }
+
+  throw lastError;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const {
       content,
       platform,
-      accountType,
-      style,
-      customStyle,
       task = "convert",
+      // xiaohongshu
       selectedStyle,
       subDirection,
       tone,
       emojiDensity,
+      // weixin
+      selectedType,
+      // shared
       userPreference,
     } = await req.json();
 
@@ -127,12 +161,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "平台参数错误" }, { status: 400 });
     }
 
-    let promptFile = `${platform}.txt`;
+    let promptFile = "weixin-general.txt";
     if (platform === "xiaohongshu") {
       if (task === "route") promptFile = "xiaohongshu-route.txt";
       if (task === "check") promptFile = "xiaohongshu-check.txt";
-      if (task === "generate" || task === "convert") {
-        promptFile = "xiaohongshu-generate.txt";
+      if (task === "generate" || task === "convert") promptFile = "xiaohongshu-generate.txt";
+    } else {
+      // weixin
+      if (task === "route") {
+        promptFile = "weixin-route.txt";
+      } else if (task === "check") {
+        promptFile = "weixin-check.txt";
+      } else if (task === "generate" || task === "convert") {
+        const typeToFile: Record<string, string> = {
+          "情绪共鸣": "weixin-emotion.txt",
+          "经验干货": "weixin-practical.txt",
+          "热点观点": "weixin-hot-take.txt",
+          "人设故事": "weixin-story.txt",
+          "通用兜底": "weixin-general.txt",
+        };
+        promptFile = typeToFile[selectedType as string] || "weixin-general.txt";
       }
     }
 
@@ -142,17 +190,20 @@ export async function POST(req: NextRequest) {
 
     let userMessage = `请把以下内容转换为对应平台风格：\n\n${content}`;
 
-    if (platform === "weixin") {
-      const preferenceLines = [
-        `目标平台：${targetPlatform}`,
-        accountType ? `账号类型：${accountType}` : "",
-        style ? `写作风格：${style}` : "",
-        customStyle ? `额外偏好：${customStyle}` : "",
-      ].filter(Boolean);
+    if (platform === "weixin" && task === "route") {
+      userMessage = `用户输入内容：\n${content}`;
+    }
 
-      userMessage = `请根据以下账号画像和偏好，把原始内容改写成适合${targetPlatform}发布的版本。\n\n${preferenceLines.join(
-        "\n"
-      )}\n\n原始内容：\n${content}`;
+    if (platform === "weixin" && task === "check") {
+      userMessage = `用户选择的类型：${selectedType || ""}\n\n用户输入内容：\n${content}`;
+    }
+
+    if (platform === "weixin" && (task === "generate" || task === "convert")) {
+      userMessage = [
+        `内容类型：${selectedType || "通用兜底"}`,
+        userPreference ? `用户额外要求：${userPreference}` : "",
+        `原始内容：\n${content}`,
+      ].filter(Boolean).join("\n\n");
     }
 
     if (platform === "xiaohongshu" && task === "route") {
@@ -176,14 +227,32 @@ export async function POST(req: NextRequest) {
         .join("\n\n");
     }
 
-    const completion = await createChatCompletion({
-      task,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    });
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ];
 
+    if (task === "generate" || task === "convert") {
+      const stream = await createStreamingCompletion({ task, messages });
+      const readable = new ReadableStream({
+        async start(controller) {
+          const encoder = new TextEncoder();
+          try {
+            for await (const chunk of stream) {
+              const content = chunk.choices[0]?.delta?.content;
+              if (content) controller.enqueue(encoder.encode(content));
+            }
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      return new Response(readable, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    const completion = await createChatCompletion({ task, messages });
     const result = completion.choices[0].message.content || "";
     return NextResponse.json({ result });
   } catch (error) {
