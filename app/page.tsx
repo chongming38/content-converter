@@ -23,7 +23,7 @@ const platformConfig = {
     name: "小红书",
     shortName: "小红书",
     accent: "red",
-    description: "适合生活化表达、情绪共鸣、经验分享、种草和轻观点。",
+    description: "轻表达、强钩子、适合收藏和互动。",
     targetLabel: "改成小红书笔记",
     sourceGuess: "更适合从公众号长文、碎片想法或偏正式内容转入。",
   },
@@ -31,7 +31,7 @@ const platformConfig = {
     name: "微信公众号",
     shortName: "公众号",
     accent: "green",
-    description: "适合完整观点、深度分析、品牌表达和系统化文章。",
+    description: "结构完整、观点清楚、适合深度阅读。",
     targetLabel: "改成公众号文章",
     sourceGuess: "更适合从小红书笔记、短文案或碎片灵感扩写而来。",
   },
@@ -52,7 +52,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "life",
       name: "生活记录",
-      hint: "日常、旅行、消费体验、生活方式",
+      hint: "日常 / 旅行 / 生活方式",
       styles: [
         { id: "diary", name: "真实碎碎念", description: "像朋友聊天，有场景、有细节、有情绪转折。" },
         { id: "list", name: "收藏清单", description: "用分点和步骤制造收藏价值。" },
@@ -62,7 +62,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "emotion",
       name: "情绪疗愈",
-      hint: "自我觉察、关系、低谷、内耗",
+      hint: "关系 / 内耗 / 自我觉察",
       styles: [
         { id: "soft", name: "温柔陪伴", description: "先接住情绪，再给低压力建议。" },
         { id: "wake", name: "反内耗", description: "更直接有力量，帮读者从纠结里出来。" },
@@ -72,7 +72,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "review",
       name: "种草测评",
-      hint: "好物、工具、课程、服务体验",
+      hint: "好物 / 工具 / 体验",
       styles: [
         { id: "seed", name: "种草安利", description: "强调使用场景、真实感受和适合人群。" },
         { id: "compare", name: "对比测评", description: "先给结论，再讲优缺点和选择建议。" },
@@ -84,7 +84,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "opinion",
       name: "深度观点",
-      hint: "社会观察、个人判断、热点评论",
+      hint: "观察 / 判断 / 评论",
       styles: [
         { id: "argument", name: "观点论述", description: "先提出判断，再用逻辑和案例展开。" },
         { id: "analysis", name: "深度分析", description: "适合更正式、更完整的长文章结构。" },
@@ -94,7 +94,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "career",
       name: "职场经验",
-      hint: "工作方法、复盘、团队协作、成长",
+      hint: "方法 / 复盘 / 成长",
       styles: [
         { id: "method", name: "方法论拆解", description: "把经验整理成框架、步骤和可执行建议。" },
         { id: "review", name: "经验复盘", description: "从真实经历出发，讲问题、选择和结果。" },
@@ -104,7 +104,7 @@ const accountOptions: Record<Platform, AccountOption[]> = {
     {
       id: "growth",
       name: "个人成长",
-      hint: "认知、学习、表达、长期主义",
+      hint: "认知 / 学习 / 表达",
       styles: [
         { id: "warm", name: "温和陪伴", description: "保留温度，降低说教感。" },
         { id: "system", name: "系统表达", description: "把零散观点组织成完整文章。" },
@@ -210,14 +210,12 @@ export default function Home() {
       <div className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col px-5 py-5">
         <header className="mb-5 flex flex-col justify-between gap-4 border-b border-stone-200/80 pb-5 md:flex-row md:items-end">
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
-              PlatformFit Content Studio
-            </p>
-            <h1 className="max-w-3xl text-3xl font-black tracking-tight text-stone-950 md:text-4xl">
-              先选发布平台，再把内容改成它该有的样子
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">PlatformFit</p>
+            <h1 className="max-w-3xl text-3xl font-black tracking-tight text-stone-950 md:text-5xl">
+              内容跨平台改写器
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              面向小红书和公众号的双向内容改写。先确定目标平台，再用账号类型、写作风格和自定义偏好减少误判。
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 md:text-base">
+              小红书 ↔ 公众号，一键改写成适合发布的版本，并说明原因。
             </p>
           </div>
           <div className="rounded-full border border-stone-200 bg-white/70 px-4 py-2 text-sm font-medium text-stone-600 shadow-sm">
@@ -228,7 +226,7 @@ export default function Home() {
 
         <div className="grid flex-1 gap-5 md:grid-cols-[minmax(340px,0.9fr)_minmax(420px,1.1fr)]">
           <section className="flex min-h-[720px] flex-col rounded-[28px] border border-stone-200 bg-white/80 p-5 shadow-[0_20px_80px_rgba(48,36,18,.08)] backdrop-blur">
-            <SectionTitle eyebrow="Step 1" title="选择你要发布的平台" />
+            <SectionTitle eyebrow="1" title="发到哪里" />
             <div className="grid grid-cols-2 gap-3">
               {(["xiaohongshu", "weixin"] as Platform[]).map((item) => {
                 const selected = platform === item;
@@ -264,7 +262,7 @@ export default function Home() {
             </div>
 
             <div className="mt-5">
-              <SectionTitle eyebrow="Step 2" title={`${config.shortName}账号更像哪一类`} compact />
+              <SectionTitle eyebrow="2" title="账号类型" compact />
               <div className="grid gap-2">
                 {accounts.map((item) => (
                   <button
@@ -288,7 +286,7 @@ export default function Home() {
 
             <div className="mt-5">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <SectionTitle eyebrow="Step 3" title="选择写作风格" compact />
+                <SectionTitle eyebrow="3" title="写作风格" compact />
                 <button
                   type="button"
                   onClick={() => setShowCustomStyle((value) => !value)}
@@ -327,7 +325,7 @@ export default function Home() {
             </div>
 
             <div className="mt-5 flex flex-1 flex-col">
-              <SectionTitle eyebrow="Step 4" title="粘贴原始内容" compact />
+              <SectionTitle eyebrow="4" title="粘贴内容" compact />
               <textarea
                 className="min-h-[220px] flex-1 resize-none rounded-2xl border border-stone-200 bg-[#fffdf8] p-4 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400 focus:bg-white"
                 placeholder="粘贴已有的小红书文案、公众号文章、草稿或碎片想法..."
@@ -356,8 +354,8 @@ export default function Home() {
           <section className="flex min-h-[720px] flex-col rounded-[28px] border border-stone-200 bg-[#11100e] p-5 text-white shadow-[0_28px_90px_rgba(17,16,14,.22)]">
             <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 sm:flex-row sm:items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">Conversion Preview</p>
-                <h2 className="mt-2 text-2xl font-black tracking-tight">转换预览</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">Preview</p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight">输出结果</h2>
               </div>
               {result && (
                 <button
@@ -369,10 +367,10 @@ export default function Home() {
               )}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <InsightCard title="目标平台" value={config.name} detail={config.description} tone={config.accent} />
-              <InsightCard title="账号画像" value={activeAccount.name} detail={activeAccount.hint} />
-              <InsightCard title="写作风格" value={activeStyle.name} detail={customStyle || activeStyle.description} />
+            <div className="flex flex-wrap gap-2">
+              <CompactTag label="目标" value={config.name} tone={config.accent} />
+              <CompactTag label="账号" value={activeAccount.name} />
+              <CompactTag label="风格" value={activeStyle.name} />
             </div>
 
             <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
@@ -380,18 +378,13 @@ export default function Home() {
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-950">原文识别</span>
                 <span className="text-sm text-stone-300">{inputState}</span>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <ReasonPill label="保留" text="核心观点和真实语气" />
-                <ReasonPill label="重组" text={platform === "xiaohongshu" ? "钩子、短段落、收藏点" : "标题、论证、段落层次"} />
-                <ReasonPill label="避免" text={platform === "xiaohongshu" ? "公众号式长铺垫" : "过度口语和标签感"} />
-              </div>
             </div>
 
             <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-3xl border border-white/10 bg-[#fbfaf6] text-stone-950">
               <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Result Draft</p>
-                  <h3 className="mt-1 text-lg font-black">{result ? `${config.name}改写结果` : "生成后会替换为真实结果"}</h3>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Draft</p>
+                  <h3 className="mt-1 text-lg font-black">{result ? `${config.name}改写稿` : "示例改写稿"}</h3>
                 </div>
                 {!result && !loading && (
                   <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-500">示例预览</span>
@@ -413,19 +406,14 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <StrategyCard
-                title="为什么这样改"
-                text={
-                  platform === "xiaohongshu"
-                    ? "小红书要先建立“和我有关”的感觉，所以会压缩铺垫，强化场景、情绪和可收藏的信息密度。"
-                    : "公众号读者愿意读更完整的逻辑，所以会补足背景、段落推进和观点支撑。"
-                }
-              />
-              <StrategyCard
-                title="可继续微调"
-                text={customStyle ? `已加入你的要求：${customStyle}` : "可以点左侧“自定义”，补充不要太营销、保留吐槽、更正式等细节。"}
-              />
+            <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+              <p className="text-sm font-black text-white">改写策略</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <ReasonPill label="保留" text="核心观点" />
+                <ReasonPill label="强化" text={platform === "xiaohongshu" ? "钩子和收藏点" : "结构和论证"} />
+                <ReasonPill label="删掉" text={platform === "xiaohongshu" ? "长铺垫" : "标签感"} />
+              </div>
+              {customStyle && <p className="mt-3 text-sm leading-6 text-stone-300">已加入自定义要求：{customStyle}</p>}
             </div>
           </section>
         </div>
@@ -437,35 +425,24 @@ export default function Home() {
 function SectionTitle({ eyebrow, title, compact = false }: { eyebrow: string; title: string; compact?: boolean }) {
   return (
     <div className={compact ? "mb-3" : "mb-4"}>
-      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">{eyebrow}</p>
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">Step {eyebrow}</p>
       <h2 className="mt-1 text-base font-black text-stone-950">{title}</h2>
     </div>
   );
 }
 
-function InsightCard({
-  title,
-  value,
-  detail,
-  tone,
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  tone?: "red" | "green";
-}) {
+function CompactTag({ label, value, tone }: { label: string; value: string; tone?: "red" | "green" }) {
   return (
-    <article className="rounded-2xl border border-white/10 bg-white/[0.07] p-4">
-      <p className="text-xs font-semibold text-stone-400">{title}</p>
-      <p
-        className={`mt-2 text-base font-black ${
+    <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm">
+      <span className="text-stone-400">{label}</span>
+      <span
+        className={`ml-2 font-black ${
           tone === "red" ? "text-red-300" : tone === "green" ? "text-emerald-300" : "text-white"
         }`}
       >
         {value}
-      </p>
-      <p className="mt-2 text-xs leading-5 text-stone-400">{detail}</p>
-    </article>
+      </span>
+    </div>
   );
 }
 
@@ -478,11 +455,3 @@ function ReasonPill({ label, text }: { label: string; text: string }) {
   );
 }
 
-function StrategyCard({ title, text }: { title: string; text: string }) {
-  return (
-    <article className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-      <p className="text-sm font-black text-white">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-stone-300">{text}</p>
-    </article>
-  );
-}
