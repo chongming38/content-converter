@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 type Platform = "weixin" | "xiaohongshu";
 type XhsStyle = "干货分享" | "经验分享" | "个人观点" | "情绪抒发" | "生活记录";
@@ -106,6 +106,110 @@ function detectInputState(content: string, platform: Platform) {
     return platform === "xiaohongshu" ? "像长文草稿，适合压缩为小红书短笔记" : "像完整文章，可继续打磨公众号结构";
   }
   return "像半成品内容，适合按目标平台重组";
+}
+
+type PolishStep = "hidden" | "input" | "reviewing";
+type Token = { t: "word" | "punct"; v: string };
+type Edit = { type: "keep" | "insert" | "delete"; text: string; isPunct: boolean };
+type Marker = { type: string; content: string; key: string };
+
+type SpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onresult: ((e: SpeechRecognitionResultEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+};
+type SpeechRecognitionResultEvent = {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+function tokenize(text: string): Token[] {
+  const tokens: Token[] = [];
+  let buf = "";
+  for (const ch of text) {
+    if (/[，。！？、；：""''（）\n,.;:!?() ]/.test(ch)) {
+      if (buf) { tokens.push({ t: "word", v: buf }); buf = ""; }
+      tokens.push({ t: "punct", v: ch });
+    } else { buf += ch; }
+  }
+  if (buf) tokens.push({ t: "word", v: buf });
+  return tokens;
+}
+
+function computeDiff(original: string, polished: string): Edit[] {
+  const oT = tokenize(original), pT = tokenize(polished);
+  const m = oT.length, n = pT.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0) as number[]);
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = oT[i-1].v === pT[j-1].v && oT[i-1].t === pT[j-1].t
+        ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const edits: Edit[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oT[i-1].v === pT[j-1].v && oT[i-1].t === pT[j-1].t) {
+      edits.unshift({ type: "keep", text: pT[j-1].v, isPunct: pT[j-1].t === "punct" }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+      edits.unshift({ type: "insert", text: pT[j-1].v, isPunct: pT[j-1].t === "punct" }); j--;
+    } else {
+      edits.unshift({ type: "delete", text: oT[i-1].v, isPunct: oT[i-1].t === "punct" }); i--;
+    }
+  }
+  return edits;
+}
+
+function parseMarkers(raw: string): { clean: string; markers: Marker[] } {
+  const markers: Marker[] = [];
+  const seen = new Set<string>();
+  const re = /〔(疑[音义名])：([^〕]+)〕/g;
+  let match;
+  while ((match = re.exec(raw)) !== null) {
+    const key = `${match[1]}::${match[2]}`;
+    if (!seen.has(key)) { seen.add(key); markers.push({ type: match[1], content: match[2], key }); }
+  }
+  const clean = raw
+    .replace(/〔疑[音义名]：([^〕]+)〕/g, "$1")
+    .replace(/〔疑缺〕/g, "")
+    .replace(/【概念一致性提示】[\s\S]*/g, "")
+    .trim();
+  return { clean, markers };
+}
+
+function renderDiff(edits: Edit[]) {
+  const nodes: JSX.Element[] = [];
+  let i = 0;
+  while (i < edits.length) {
+    if (edits[i].type === "keep") {
+      nodes.push(edits[i].text === "\n" ? <br key={i} /> : <span key={i}>{edits[i].text}</span>);
+      i++; continue;
+    }
+    let dels = "", ins = "";
+    const si = i;
+    while (i < edits.length && edits[i].type !== "keep") {
+      if (edits[i].type === "delete") dels += edits[i].text; else ins += edits[i].text;
+      i++;
+    }
+    if (dels && !ins) {
+      nodes.push(<span key={si} className="rounded bg-red-100 px-0.5 text-red-600 line-through">{dels}</span>);
+    } else if (!dels && ins) {
+      const punct = /^[，。！？、；：\n]+$/.test(ins);
+      nodes.push(<span key={si} className={`rounded px-0.5 ${punct ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>{ins}</span>);
+    } else {
+      const typo = dels.length <= 3 && ins.length <= 3 && !/[，。！？\n]/.test(dels + ins);
+      nodes.push(
+        <span key={si} className={`inline-flex items-baseline gap-1 rounded px-0.5 ${typo ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-800"}`}>
+          <s className="opacity-50 text-xs">{dels}</s><span>{ins}</span>
+        </span>
+      );
+    }
+  }
+  return nodes;
 }
 
 function parseXhsResult(text: string) {
@@ -247,6 +351,24 @@ export default function Home() {
   const [selectedWeixinType, setSelectedWeixinType] = useState<WeixinType>("经验干货");
   const [weixinTypeCheck, setWeixinTypeCheck] = useState<WeixinTypeCheck | null>(null);
 
+  // 碎碎念整理
+  const [polishStep, setPolishStep] = useState<PolishStep>("hidden");
+  const [polishInput, setPolishInput] = useState("");
+  const [polishLoading, setPolishLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [micInitializing, setMicInitializing] = useState(false);
+  const [polishClean, setPolishClean] = useState("");
+  const [polishEdits, setPolishEdits] = useState<Edit[]>([]);
+  const [polishMarkers, setPolishMarkers] = useState<Marker[]>([]);
+  const [markerStates, setMarkerStates] = useState<Record<string, "pending" | "confirmed" | "editing" | "edited">>({});
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const isRecordingRef = useRef(false);
+
+  useEffect(() => {
+    return () => { recognitionRef.current?.stop(); };
+  }, []);
+
   const inputState = useMemo(() => detectInputState(content, platform), [content, platform]);
   const config = platformConfig[platform];
   const displayResult = result || sampleResult[platform];
@@ -281,6 +403,94 @@ export default function Home() {
       setWeixinTypeCheck(null);
       setPreference("");
     }
+  }
+
+  function toggleRecording() {
+    if (isRecordingRef.current) {
+      isRecordingRef.current = false;
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    const SR = ((window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
+      || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition);
+    if (!SR) return;
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onstart = () => { setMicInitializing(false); setIsRecording(true); };
+    rec.onresult = (e: SpeechRecognitionResultEvent) => {
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      }
+      if (final) setPolishInput((prev) => (prev ? prev + final : final));
+    };
+    rec.onend = () => { if (isRecordingRef.current) { try { rec.start(); } catch { } } };
+    recognitionRef.current = rec;
+    isRecordingRef.current = true;
+    setMicInitializing(true);
+    rec.start();
+  }
+
+  async function handlePolish() {
+    if (!polishInput.trim()) return;
+    setPolishLoading(true);
+    if (isRecordingRef.current) toggleRecording();
+    try {
+      const res = await fetch("/api/polish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: polishInput }),
+      });
+      const data = await res.json();
+      if (data.result) {
+        const { clean, markers } = parseMarkers(data.result);
+        const edits = computeDiff(polishInput, clean);
+        setPolishClean(clean);
+        setPolishEdits(edits);
+        setPolishMarkers(markers);
+        setPolishStep("reviewing");
+      } else if (data.error) {
+        alert(data.error);
+      }
+    } catch {
+      alert("整理失败，请重试");
+    } finally {
+      setPolishLoading(false);
+    }
+  }
+
+  function handleConfirmPolish() {
+    handleContentChange(polishClean);
+    setPolishStep("hidden");
+    setPolishInput("");
+    setPolishClean("");
+    setPolishEdits([]);
+    setPolishMarkers([]);
+    setMarkerStates({});
+    setEditValues({});
+  }
+
+  function handleMarkerConfirm(key: string) {
+    setMarkerStates((prev) => ({ ...prev, [key]: "confirmed" }));
+  }
+
+  function handleMarkerStartEdit(key: string, originalContent: string) {
+    setEditValues((prev) => ({ ...prev, [key]: originalContent }));
+    setMarkerStates((prev) => ({ ...prev, [key]: "editing" }));
+  }
+
+  function handleMarkerConfirmEdit(key: string, originalContent: string) {
+    const newVal = editValues[key]?.trim();
+    if (!newVal || newVal === originalContent) {
+      setMarkerStates((prev) => ({ ...prev, [key]: "confirmed" }));
+      return;
+    }
+    const escaped = originalContent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    setPolishClean((prev) => prev.replace(new RegExp(escaped, "g"), newVal));
+    setMarkerStates((prev) => ({ ...prev, [key]: "edited" }));
   }
 
   async function handleConvert() {
@@ -461,7 +671,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f7f4ee] text-stone-950">
       <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(115deg,rgba(241,82,66,.12),transparent_28%),linear-gradient(245deg,rgba(23,146,91,.12),transparent_30%)]" />
-      <div className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col px-5 py-5">
+      <div className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col px-3 py-4 md:px-5 md:py-5">
         <header className="mb-5 flex flex-col justify-between gap-4 border-b border-stone-200/80 pb-5 md:flex-row md:items-end">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">PlatformFit</p>
@@ -479,7 +689,7 @@ export default function Home() {
         </header>
 
         <div className="grid flex-1 gap-5 md:grid-cols-[minmax(340px,0.9fr)_minmax(420px,1.1fr)]">
-          <section className="flex min-h-[720px] flex-col rounded-[28px] border border-stone-200 bg-white/80 p-5 shadow-[0_20px_80px_rgba(48,36,18,.08)] backdrop-blur">
+          <section className="flex flex-col rounded-[28px] border border-stone-200 bg-white/80 p-5 shadow-[0_20px_80px_rgba(48,36,18,.08)] backdrop-blur md:min-h-[720px]">
             <SectionTitle eyebrow="1" title="发到哪里" />
             <div className="grid grid-cols-2 gap-3">
               {(["xiaohongshu", "weixin"] as Platform[]).map((item) => {
@@ -516,9 +726,166 @@ export default function Home() {
             </div>
 
             <div className="mt-5 flex flex-1 flex-col">
-              <SectionTitle eyebrow="2" title="粘贴内容" compact />
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">Step 2</p>
+                  <h2 className="mt-1 text-base font-black text-stone-950">粘贴内容</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPolishStep(polishStep === "hidden" ? "input" : "hidden")}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+                    polishStep !== "hidden"
+                      ? "border-stone-900 bg-stone-950 text-white"
+                      : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                  }`}
+                >
+                  🎙 先整理碎碎念
+                </button>
+              </div>
+
+              {/* 碎碎念：输入阶段 */}
+              {polishStep === "input" && (
+                <div className="mb-3 rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                  <textarea
+                    className="min-h-[100px] w-full resize-none rounded-xl border border-stone-200 bg-white p-3 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400"
+                    placeholder="随便说，不用组织，口语也行。说完点「整理」。"
+                    value={polishInput}
+                    onChange={(e) => setPolishInput(e.target.value)}
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      disabled={micInitializing}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+                        isRecording
+                          ? "animate-pulse border-red-300 bg-red-50 text-red-600"
+                          : micInitializing
+                            ? "border-stone-200 bg-stone-100 text-stone-400"
+                            : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                      }`}
+                    >
+                      {isRecording ? "⏹ 停止" : micInitializing ? "初始化中..." : "🎙 说话"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePolish}
+                      disabled={polishLoading || !polishInput.trim()}
+                      className="ml-auto rounded-full bg-stone-900 px-4 py-1.5 text-xs font-black text-white transition hover:bg-stone-700 disabled:opacity-40"
+                    >
+                      {polishLoading ? "整理中..." : "整理 →"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 碎碎念：审阅阶段 */}
+              {polishStep === "reviewing" && (
+                <div className="mb-3 rounded-2xl border border-stone-300 bg-stone-50 p-3">
+                  {/* 图例 */}
+                  <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                    <span className="font-black text-stone-600">修改标注</span>
+                    <span className="rounded bg-red-100 px-1.5 text-red-600 line-through">删除</span>
+                    <span className="rounded bg-emerald-100 px-1.5 text-emerald-700">补充</span>
+                    <span className="rounded bg-amber-100 px-1.5 text-amber-800">调整</span>
+                    <span className="rounded bg-blue-100 px-1.5 text-blue-700">错字</span>
+                  </div>
+                  {/* 标注文本 */}
+                  <div className="max-h-36 overflow-y-auto rounded-xl border border-stone-200 bg-white p-3 text-sm leading-7">
+                    {polishEdits.length > 0 ? renderDiff(polishEdits) : <span className="text-stone-400">无显著修改</span>}
+                  </div>
+                  {/* 可编辑整理结果 */}
+                  <textarea
+                    className="mt-2 min-h-[72px] w-full resize-y rounded-xl border border-stone-200 bg-white p-2.5 text-sm leading-6 text-stone-800 outline-none transition focus:border-stone-400"
+                    placeholder="整理后的文字（可直接修改）"
+                    value={polishClean}
+                    onChange={(e) => setPolishClean(e.target.value)}
+                  />
+                  {/* 待确认项 */}
+                  {polishMarkers.length > 0 && (
+                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="mb-2 text-xs font-black text-amber-800">
+                        待确认（{polishMarkers.filter((m) => !markerStates[m.key] || markerStates[m.key] === "editing" || markerStates[m.key] === "pending").length} / {polishMarkers.length}项）
+                      </p>
+                      <div className="space-y-2">
+                        {polishMarkers.map((m) => {
+                          const state = markerStates[m.key] ?? "pending";
+                          const label = m.type === "疑音" ? "语音偏差" : m.type === "疑义" ? "语义存疑" : "专名确认";
+                          const done = state === "confirmed" || state === "edited";
+                          return (
+                            <div key={m.key} className={`transition-opacity ${done ? "opacity-40" : ""}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-amber-900">
+                                  <span className="font-bold">{label}</span>
+                                  {" · "}「{state === "edited" ? editValues[m.key] : m.content}」
+                                  {done ? (state === "edited" ? " — 已修改 ✓" : " — 已确认 ✓") : " 是你想表达的吗？"}
+                                </span>
+                                {!done && state !== "editing" && (
+                                  <div className="flex shrink-0 gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMarkerConfirm(m.key)}
+                                      className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-200"
+                                    >
+                                      ✓ 正确
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMarkerStartEdit(m.key, m.content)}
+                                      className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-700 hover:bg-stone-200"
+                                    >
+                                      ✎ 修改
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {state === "editing" && (
+                                <div className="mt-1.5 flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={editValues[m.key] ?? m.content}
+                                    onChange={(e) => setEditValues((prev) => ({ ...prev, [m.key]: e.target.value }))}
+                                    className="flex-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-amber-500"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMarkerConfirmEdit(m.key, m.content)}
+                                    className="rounded-full bg-stone-900 px-3 py-1 text-xs font-black text-white hover:bg-stone-700"
+                                  >
+                                    确认
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {/* 操作按钮 */}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setPolishStep("input"); setMarkerStates({}); setEditValues({}); }}
+                      className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-600 hover:bg-stone-50"
+                    >
+                      ← 重新整理
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmPolish}
+                      className="ml-auto rounded-full bg-stone-900 px-4 py-1.5 text-xs font-black text-white hover:bg-stone-700"
+                    >
+                      确认填入 →
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <textarea
-                className="min-h-[220px] flex-1 resize-none rounded-2xl border border-stone-200 bg-[#fffdf8] p-4 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400 focus:bg-white"
+                className="min-h-[160px] flex-1 resize-none rounded-2xl border border-stone-200 bg-[#fffdf8] p-4 text-sm leading-6 text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-stone-400 focus:bg-white md:min-h-[220px]"
                 placeholder="先粘贴草稿、提纲、文章、口述稿或几句零散想法，再确认表达方向。"
                 value={content}
                 onChange={(event) => handleContentChange(event.target.value)}
@@ -661,7 +1028,7 @@ export default function Home() {
             </button>
           </section>
 
-          <section className="flex min-h-[720px] flex-col rounded-[28px] border border-stone-200 bg-[#11100e] p-5 text-white shadow-[0_28px_90px_rgba(17,16,14,.22)]">
+          <section className="flex flex-col rounded-[28px] border border-stone-200 bg-[#11100e] p-5 text-white shadow-[0_28px_90px_rgba(17,16,14,.22)] md:min-h-[720px]">
             <div className="mb-5 flex flex-col justify-between gap-3 border-b border-white/10 pb-5 sm:flex-row sm:items-center">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">Preview</p>
