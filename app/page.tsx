@@ -776,20 +776,26 @@ export default function Home() {
                     onChange={(e) => setPolishInput(e.target.value)}
                   />
                   <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={toggleRecording}
-                      disabled={micInitializing}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
-                        isRecording
-                          ? "animate-pulse border-red-300 bg-red-50 text-red-600"
-                          : micInitializing
-                            ? "border-stone-200 bg-stone-100 text-stone-400"
-                            : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
-                      }`}
-                    >
-                      {isRecording ? (isIOSDevice ? "识别中..." : "⏹ 停止") : micInitializing ? "初始化中..." : polishInput && isIOSDevice ? "🎙 再说一句" : "🎙 说话"}
-                    </button>
+                    {recognitionRef.current === null && polishStep === "input" && typeof window !== "undefined" && !((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition) ? (
+                      <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
+                        🎙 请用 Chrome 或 Safari 打开
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={toggleRecording}
+                        disabled={micInitializing}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+                          isRecording
+                            ? "animate-pulse border-red-300 bg-red-50 text-red-600"
+                            : micInitializing
+                              ? "border-stone-200 bg-stone-100 text-stone-400"
+                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                        }`}
+                      >
+                        {isRecording ? (isIOSDevice ? "识别中..." : "⏹ 停止") : micInitializing ? "初始化中..." : polishInput && isIOSDevice ? "🎙 再说一句" : "🎙 说话"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handlePolish}
