@@ -369,6 +369,27 @@ export default function Home() {
     return () => { recognitionRef.current?.stop(); };
   }, []);
 
+  useEffect(() => {
+    if (polishStep !== "input") return;
+    const SR = ((window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
+      || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition);
+    if (!SR || recognitionRef.current) return;
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onstart = () => { setMicInitializing(false); setIsRecording(true); };
+    rec.onresult = (e: SpeechRecognitionResultEvent) => {
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      }
+      if (final) setPolishInput((prev) => (prev ? prev + final : final));
+    };
+    rec.onend = () => { if (isRecordingRef.current) { try { rec.start(); } catch { } } };
+    recognitionRef.current = rec;
+  }, [polishStep]);
+
   const inputState = useMemo(() => detectInputState(content, platform), [content, platform]);
   const config = platformConfig[platform];
   const displayResult = result || sampleResult[platform];
@@ -412,23 +433,8 @@ export default function Home() {
       setIsRecording(false);
       return;
     }
-    const SR = ((window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
-      || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition);
-    if (!SR) return;
-    const rec = new SR();
-    rec.lang = "zh-CN";
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.onstart = () => { setMicInitializing(false); setIsRecording(true); };
-    rec.onresult = (e: SpeechRecognitionResultEvent) => {
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript;
-      }
-      if (final) setPolishInput((prev) => (prev ? prev + final : final));
-    };
-    rec.onend = () => { if (isRecordingRef.current) { try { rec.start(); } catch { } } };
-    recognitionRef.current = rec;
+    const rec = recognitionRef.current;
+    if (!rec) return;
     isRecordingRef.current = true;
     setMicInitializing(true);
     rec.start();
@@ -733,7 +739,13 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setPolishStep(polishStep === "hidden" ? "input" : "hidden")}
+                  onClick={() => {
+                    if (polishStep !== "hidden") {
+                      if (isRecordingRef.current) toggleRecording();
+                      recognitionRef.current = null;
+                    }
+                    setPolishStep(polishStep === "hidden" ? "input" : "hidden");
+                  }}
                   className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
                     polishStep !== "hidden"
                       ? "border-stone-900 bg-stone-950 text-white"
