@@ -357,6 +357,7 @@ export default function Home() {
   const [polishLoading, setPolishLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [micInitializing, setMicInitializing] = useState(false);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
   const [polishClean, setPolishClean] = useState("");
   const [polishEdits, setPolishEdits] = useState<Edit[]>([]);
   const [polishMarkers, setPolishMarkers] = useState<Marker[]>([]);
@@ -374,9 +375,11 @@ export default function Home() {
     const SR = ((window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
       || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition);
     if (!SR || recognitionRef.current) return;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    setIsIOSDevice(isIOS);
     const rec = new SR();
     rec.lang = "zh-CN";
-    rec.continuous = true;
+    rec.continuous = !isIOS;
     rec.interimResults = true;
     rec.onstart = () => { setMicInitializing(false); setIsRecording(true); };
     rec.onresult = (e: SpeechRecognitionResultEvent) => {
@@ -386,7 +389,14 @@ export default function Home() {
       }
       if (final) setPolishInput((prev) => (prev ? prev + final : final));
     };
-    rec.onend = () => { if (isRecordingRef.current) { try { rec.start(); } catch { } } };
+    rec.onend = () => {
+      if (isIOS) {
+        isRecordingRef.current = false;
+        setIsRecording(false);
+      } else if (isRecordingRef.current) {
+        try { rec.start(); } catch { }
+      }
+    };
     recognitionRef.current = rec;
   }, [polishStep]);
 
@@ -778,7 +788,7 @@ export default function Home() {
                             : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
                       }`}
                     >
-                      {isRecording ? "⏹ 停止" : micInitializing ? "初始化中..." : "🎙 说话"}
+                      {isRecording ? (isIOSDevice ? "识别中..." : "⏹ 停止") : micInitializing ? "初始化中..." : polishInput && isIOSDevice ? "🎙 再说一句" : "🎙 说话"}
                     </button>
                     <button
                       type="button"
