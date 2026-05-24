@@ -799,6 +799,11 @@ export default function Home() {
                         {isRecording ? (isIOSDevice ? "识别中..." : "⏹ 停止") : micInitializing ? "初始化中..." : polishInput && isIOSDevice ? "🎙 再说一句" : "🎙 说话"}
                       </button>
                     )}
+                    {speechSupported && !isRecording && !micInitializing && (
+                      <span className="text-xs text-stone-400">
+                        {isIOSDevice ? "每次说一句，说完自动停" : "点击开始，说完点停止"}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={handlePolish}
