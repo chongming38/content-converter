@@ -153,8 +153,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请输入内容" }, { status: 400 });
     }
 
-    if (content.length > 3000) {
-      return NextResponse.json({ error: "内容过长，请控制在 3000 字以内" }, { status: 400 });
+    if (content.length > 8000) {
+      return NextResponse.json({ error: "内容过长，请控制在 8000 字以内" }, { status: 400 });
     }
 
     if (!["weixin", "xiaohongshu"].includes(platform)) {

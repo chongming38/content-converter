@@ -932,7 +932,7 @@ export default function Home() {
               />
               <div className="mt-2 flex items-center justify-between text-xs text-stone-400">
                 <span>{content.length > 0 ? inputState : "导入内容后，再做风格判断和选择。"}</span>
-                <span>{content.length} / 3000</span>
+                <span>{content.length} / 8000</span>
               </div>
             </div>
 
