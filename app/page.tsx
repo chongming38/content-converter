@@ -707,6 +707,10 @@ export default function Home() {
           </div>
         </header>
 
+        <div className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          🌐 建议使用 <strong>Chrome</strong> 或 <strong>Safari</strong> 打开以获得完整体验（含语音输入）。微信、联想、360 等内置浏览器不支持语音功能。
+        </div>
+
         <div className="grid flex-1 gap-5 md:grid-cols-[minmax(340px,0.9fr)_minmax(420px,1.1fr)]">
           <section className="flex flex-col rounded-[28px] border border-stone-200 bg-white/80 p-5 shadow-[0_20px_80px_rgba(48,36,18,.08)] backdrop-blur md:min-h-[720px]">
             <SectionTitle eyebrow="1" title="发到哪里" />
@@ -799,9 +803,9 @@ export default function Home() {
                         {isRecording ? (isIOSDevice ? "识别中..." : "⏹ 停止") : micInitializing ? "初始化中..." : polishInput && isIOSDevice ? "🎙 再说一句" : "🎙 说话"}
                       </button>
                     )}
-                    {speechSupported && !isRecording && !micInitializing && (
+                    {!isRecording && !micInitializing && speechSupported && (
                       <span className="text-xs text-stone-400">
-                        {isIOSDevice ? "每次说一句，说完自动停" : "点击开始，说完点停止"}
+                        点击开始录音，说完点停止。iOS 请逐句录音。
                       </span>
                     )}
                     <button
