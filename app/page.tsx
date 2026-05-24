@@ -358,6 +358,7 @@ export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [micInitializing, setMicInitializing] = useState(false);
   const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
   const [polishClean, setPolishClean] = useState("");
   const [polishEdits, setPolishEdits] = useState<Edit[]>([]);
   const [polishMarkers, setPolishMarkers] = useState<Marker[]>([]);
@@ -374,9 +375,11 @@ export default function Home() {
     if (polishStep !== "input") return;
     const SR = ((window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
       || (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition);
-    if (!SR || recognitionRef.current) return;
+    if (!SR) { setSpeechSupported(false); return; }
+    if (recognitionRef.current) return;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     setIsIOSDevice(isIOS);
+    setSpeechSupported(true);
     const rec = new SR();
     rec.lang = "zh-CN";
     rec.continuous = !isIOS;
@@ -776,7 +779,7 @@ export default function Home() {
                     onChange={(e) => setPolishInput(e.target.value)}
                   />
                   <div className="mt-2 flex items-center gap-2">
-                    {recognitionRef.current === null && polishStep === "input" && typeof window !== "undefined" && !((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition) ? (
+                    {!speechSupported ? (
                       <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
                         🎙 请用 Chrome 或 Safari 打开
                       </span>
