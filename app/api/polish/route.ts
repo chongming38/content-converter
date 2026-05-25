@@ -22,7 +22,7 @@ function getClient() {
         apiKey: deepseekKey,
         baseURL: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
       }),
-      model: process.env.DEEPSEEK_MODEL_ROUTE || "deepseek-chat",
+      model: process.env.DEEPSEEK_MODEL_ROUTE || "deepseek-v4-flash",
     };
   }
 
