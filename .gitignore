@@ -16,6 +16,8 @@
 
 # debug
 npm-debug.log*
+next-*.log
+next-*.err.log
 
 # typescript
 *.tsbuildinfo

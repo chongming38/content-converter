@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PlatformFit Content Studio",
-  description: "小红书和微信公众号内容转换工作台",
+  title: "PlatformFit 内容跨平台改写器",
+  description: "小红书 ↔ 公众号，把任意草稿改写成适合发布的版本，并说明为什么这样改。",
 };
 
 export default function RootLayout({
@@ -25,9 +25,9 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
